@@ -1,14 +1,18 @@
 import os
 import uuid
-import torch
 import requests
 from datetime import datetime, timedelta
 from typing import Optional
 from sqlalchemy.orm import Session
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
-from transformers import pipeline, AutoTokenizer, AutoModelForSequenceClassification
 
 from backend.data.database import ETFMetadata, SentimentRecord
+
+# torch/transformers are NOT imported at module level on purpose — importing
+# them eagerly means every app startup pays their load cost (noticeably slow,
+# and memory-heavy) before the server can even bind to a port, which caused
+# Render's free-tier deploy to time out during its port scan. Deferred into
+# get_finbert() below so they only load on the first actual sentiment request.
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
@@ -20,9 +24,13 @@ NEWS_API_URL = "https://newsapi.org/v2/everything"
 _finbert = None
 
 def get_finbert():
-    """Lazy-load FinBERT so it only downloads when first needed."""
+    """Lazy-load FinBERT (and torch/transformers themselves) so nothing in
+    this module costs anything until the first actual sentiment request."""
     global _finbert
     if _finbert is None:
+        import torch  # noqa: F401 — transformers needs torch importable, even if unused directly here
+        from transformers import pipeline
+
         print("Loading FinBERT model (first-time download may take a minute)...")
         _finbert = pipeline(
             "text-classification",

@@ -9,10 +9,12 @@ services:
     runtime: python
     plan: free
     buildCommand: pip install -r requirements.txt
-    startCommand: python backend/main.py
+    startCommand: python -u backend/main.py
     envVars:
       - key: DEV_MODE
         value: "0"
+      - key: PYTHONUNBUFFERED
+        value: "1"   # otherwise print() output is silently buffered and never reaches Render's log viewer
       - key: ALLOWED_ORIGINS
         sync: false   # set manually to your deployed frontend URL
       - key: DATABASE_URL
