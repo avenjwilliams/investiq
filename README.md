@@ -63,7 +63,7 @@ scope stops growing before the project ships.
 - [ ] Rewrite this file as a public-facing project README: architecture,
       feature tour, screenshots, and the model validation story (numbers
       included, whichever way they land)
-- [ ] Push to a public GitHub repo
+- [x] Push to a public GitHub repo — [github.com/avenjwilliams/investiq](https://github.com/avenjwilliams/investiq)
 
 ### Explicitly cut from this release (not blocking ship)
 - [ ] Learning mode (navbar tooltip toggle explaining Sharpe ratio, LSTM,
