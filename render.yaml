@@ -1,0 +1,21 @@
+# Render Blueprint — lets Render provision the backend service from this
+# repo automatically (Dashboard → New → Blueprint). Free tier: spins down
+# after 15 min idle, ~1 min cold start on the next request. See README.md's
+# Hosting section for the full deployment story, including why the frontend
+# and database are NOT defined here (Vercel + Neon instead).
+services:
+  - type: web
+    name: investiq-api
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python backend/main.py
+    envVars:
+      - key: DEV_MODE
+        value: "0"
+      - key: ALLOWED_ORIGINS
+        sync: false   # set manually to your deployed frontend URL
+      - key: DATABASE_URL
+        sync: false   # set manually to your Neon connection string
+      - key: NEWS_API_KEY
+        sync: false   # set manually — get one free at newsapi.org

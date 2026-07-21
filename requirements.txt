@@ -1,0 +1,28 @@
+# Backend dependencies for InvestIQ.
+#
+# Note for hosting: this file was empty before the hosting-prep pass — no
+# deploy platform can install dependencies without it. Versions are left
+# unpinned for now since this was generated from the actual imports in the
+# codebase rather than a known-working `pip freeze`; pin exact versions
+# once you've confirmed a clean install in your target environment.
+#
+# tensorflow-cpu (not tensorflow) is used deliberately here — it's a much
+# smaller install and skips the CUDA/GPU dependencies this app doesn't use,
+# which matters on RAM-constrained free-tier hosts (e.g. Render's 512MB).
+
+fastapi
+uvicorn[standard]
+sqlalchemy
+psycopg2-binary   # Postgres driver — only needed if DATABASE_URL points at Postgres (e.g. Neon); harmless if still on SQLite locally
+python-dotenv
+pandas
+numpy
+yfinance
+apscheduler
+tensorflow-cpu
+scikit-learn
+joblib
+PyPortfolioOpt
+transformers
+torch
+requests
