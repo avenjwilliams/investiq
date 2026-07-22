@@ -21,13 +21,15 @@ backend/data/*.db-journal
 # track its own fetch history, not inherit a frozen value from git.
 backend/ingestion/.last_fetch.json
 
-# Trained model artifacts — regenerate via POST /forecast/transformer/train-all
-# rather than committing binary/environment-specific files to the repo.
-# Metrics JSON files are kept (not ignored) — they're the validation
-# evidence documented in the README and are worth having in version control.
-backend/models/*.keras
-backend/models/*.pkl
-backend/models/transformer_ticker_index.json
+# Trained model artifacts (multivariate_transformer.keras, transformer_scaler.pkl,
+# transformer_ticker_index.json) are intentionally NOT ignored and ARE committed.
+# Originally excluded on the assumption they'd be regenerated via
+# POST /forecast/transformer/train-all against the hosted backend — but Render's
+# free tier only has 512MB RAM, and training across all 40 tickers in-process
+# OOMs the instance. The model is tiny (~200KB) and doesn't change often, so
+# it's simpler and more reliable to train locally and commit the result than to
+# train inside a memory-constrained container. Retrain locally and re-commit
+# these files when the model changes.
 
 # Node / React
 frontend/node_modules/
