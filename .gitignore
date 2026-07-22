@@ -17,6 +17,10 @@ env/
 backend/data/*.db
 backend/data/*.db-journal
 
+# Local runtime state — each environment (local dev, Render, etc.) should
+# track its own fetch history, not inherit a frozen value from git.
+backend/ingestion/.last_fetch.json
+
 # Trained model artifacts — regenerate via POST /forecast/transformer/train-all
 # rather than committing binary/environment-specific files to the repo.
 # Metrics JSON files are kept (not ignored) — they're the validation
