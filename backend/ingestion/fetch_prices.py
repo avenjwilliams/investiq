@@ -2,6 +2,7 @@ import yfinance as yf
 import pandas as pd
 import json
 import os
+import time
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 from backend.data.database import ETFPrice, ETFMetadata, SessionLocal, init_db
@@ -94,56 +95,76 @@ def seed_metadata(db: Session):
     print("ETF metadata seeded.")
 
 
-def fetch_and_store(ticker: str, start: str, end: str, db: Session):
-    """Fetch historical OHLCV data for a single ETF and store in SQLite."""
-    try:
-        # timeout=15 — without it, a rate-limited/hung request to Yahoo
-        # Finance (common from datacenter IPs) can block indefinitely,
-        # stalling every ticker queued behind it.
-        df = yf.download(ticker, start=start, end=end, auto_adjust=True, progress=False, timeout=15)
+def fetch_and_store(ticker: str, start: str, end: str, db: Session, max_retries: int = 3):
+    """
+    Fetch historical OHLCV data for a single ETF and store in SQLite.
 
-        if df.empty:
-            print(f"  [WARN] No data returned for {ticker}")
+    Retries with backoff when Yahoo Finance returns no data, since that's
+    almost always a rate limit rather than a real "no data" case for an ETF
+    this liquid — yfinance swallows the actual YFRateLimitError internally
+    and just returns an empty DataFrame, so an empty result is the only
+    signal we get. Datacenter/cloud IPs (Render, Railway, etc.) get rate
+    limited by Yahoo far more aggressively than residential ones.
+    """
+    for attempt in range(max_retries):
+        try:
+            # timeout=15 — without it, a hung request to Yahoo Finance can
+            # block indefinitely, stalling every ticker queued behind it.
+            df = yf.download(ticker, start=start, end=end, auto_adjust=True, progress=False, timeout=15)
+        except Exception as e:
+            db.rollback()
+            print(f"  [ERROR] {ticker}: {e}")
             return
 
-        # Flatten multi-level columns if present
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = df.columns.get_level_values(0)
+        if df.empty:
+            if attempt < max_retries - 1:
+                wait = 20 * (attempt + 1)
+                print(f"  [WARN] No data for {ticker} (likely rate-limited) — retrying in {wait}s...")
+                time.sleep(wait)
+                continue
+            print(f"  [WARN] No data returned for {ticker} after {max_retries} attempts, giving up.")
+            return
 
-        df.reset_index(inplace=True)
-        df.rename(columns={
-            "Date": "date",
-            "Open": "open",
-            "High": "high",
-            "Low": "low",
-            "Close": "adj_close",  # auto_adjust=True makes Close = Adj Close
-            "Volume": "volume"
-        }, inplace=True)
+        try:
+            # Flatten multi-level columns if present
+            if isinstance(df.columns, pd.MultiIndex):
+                df.columns = df.columns.get_level_values(0)
 
-        records_added = 0
-        for _, row in df.iterrows():
-            record_id = f"{ticker}_{row['date'].date()}"
-            existing = db.query(ETFPrice).filter_by(id=record_id).first()
-            if not existing:
-                db.add(ETFPrice(
-                    id=record_id,
-                    ticker=ticker,
-                    date=row["date"].date(),
-                    open=row.get("open"),
-                    high=row.get("high"),
-                    low=row.get("low"),
-                    close=row.get("adj_close"),
-                    adj_close=row.get("adj_close"),
-                    volume=row.get("volume"),
-                ))
-                records_added += 1
+            df.reset_index(inplace=True)
+            df.rename(columns={
+                "Date": "date",
+                "Open": "open",
+                "High": "high",
+                "Low": "low",
+                "Close": "adj_close",  # auto_adjust=True makes Close = Adj Close
+                "Volume": "volume"
+            }, inplace=True)
 
-        db.commit()
-        print(f"  [OK] {ticker}: {records_added} new records added.")
+            records_added = 0
+            for _, row in df.iterrows():
+                record_id = f"{ticker}_{row['date'].date()}"
+                existing = db.query(ETFPrice).filter_by(id=record_id).first()
+                if not existing:
+                    db.add(ETFPrice(
+                        id=record_id,
+                        ticker=ticker,
+                        date=row["date"].date(),
+                        open=row.get("open"),
+                        high=row.get("high"),
+                        low=row.get("low"),
+                        close=row.get("adj_close"),
+                        adj_close=row.get("adj_close"),
+                        volume=row.get("volume"),
+                    ))
+                    records_added += 1
 
-    except Exception as e:
-        db.rollback()
-        print(f"  [ERROR] {ticker}: {e}")
+            db.commit()
+            print(f"  [OK] {ticker}: {records_added} new records added.")
+        except Exception as e:
+            db.rollback()
+            print(f"  [ERROR] {ticker}: {e}")
+
+        return  # success (or a non-retryable processing error) — either way, don't retry
 
 
 # ── Main Entry Points ─────────────────────────────────────────────────────────
@@ -160,6 +181,7 @@ def seed_historical(years: int = 10):
         for ticker in ETFS:
             print(f"Fetching {ticker}...")
             fetch_and_store(ticker, start, end, db)
+            time.sleep(1.5)  # space out requests — avoids tripping Yahoo Finance's rate limit in the first place
     finally:
         db.close()
     _set_last_fetch_time()
@@ -176,6 +198,7 @@ def fetch_latest():
     try:
         for ticker in ETFS:
             fetch_and_store(ticker, start, end, db)
+            time.sleep(1.5)
     finally:
         db.close()
     _set_last_fetch_time()
