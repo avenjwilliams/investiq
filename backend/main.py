@@ -20,6 +20,30 @@ from backend.routes.forecast import router as forecast_router
 from backend.routes.sentiment import router as sentiment_router
 
 
+def _seed_historical_in_background():
+    """
+    Runs the (slow, synchronous) historical price seed off the main startup
+    path. yfinance/Yahoo Finance is known to rate-limit or silently hang on
+    requests from datacenter IPs (Render, Railway, most cloud hosts included)
+    - blocking startup on this meant one stuck ticker could hang the entire
+    deploy past the host's port-scan timeout, since the server never got a
+    chance to bind and start accepting connections until this finished.
+    """
+    import threading
+
+    def _run():
+        try:
+            if was_fetched_recently(hours=24):
+                print("Skipping price fetch — last fetch was less than 24 hours ago.")
+            else:
+                print("Checking if historical seed is needed...")
+                seed_historical(years=10)
+        except Exception as e:
+            print(f"[Startup] Historical seed failed (non-fatal): {e}")
+
+    threading.Thread(target=_run, daemon=True).start()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Runs on startup and shutdown."""
@@ -27,11 +51,8 @@ async def lifespan(app: FastAPI):
     print("Initializing database...")
     init_db()
 
-    if was_fetched_recently(hours=24):
-        print("Skipping price fetch — last fetch was less than 24 hours ago.")
-    else:
-        print("Checking if historical seed is needed...")
-        seed_historical(years=10)
+    print("Kicking off historical price seed in the background...")
+    _seed_historical_in_background()
 
     print("Starting scheduler...")
     scheduler = start_scheduler()

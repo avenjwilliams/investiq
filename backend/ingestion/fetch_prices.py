@@ -97,7 +97,10 @@ def seed_metadata(db: Session):
 def fetch_and_store(ticker: str, start: str, end: str, db: Session):
     """Fetch historical OHLCV data for a single ETF and store in SQLite."""
     try:
-        df = yf.download(ticker, start=start, end=end, auto_adjust=True, progress=False)
+        # timeout=15 — without it, a rate-limited/hung request to Yahoo
+        # Finance (common from datacenter IPs) can block indefinitely,
+        # stalling every ticker queued behind it.
+        df = yf.download(ticker, start=start, end=end, auto_adjust=True, progress=False, timeout=15)
 
         if df.empty:
             print(f"  [WARN] No data returned for {ticker}")
