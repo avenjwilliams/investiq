@@ -12,7 +12,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from backend.data.database import init_db
-from backend.ingestion.fetch_prices import seed_historical, was_fetched_recently
+from backend.ingestion.fetch_prices import seed_historical, has_sufficient_historical_data
 from backend.scheduler.scheduler import start_scheduler, stop_scheduler
 from backend.routes.prices import router as prices_router
 from backend.routes.portfolio import router as portfolio_router
@@ -33,10 +33,16 @@ def _seed_historical_in_background():
 
     def _run():
         try:
-            if was_fetched_recently(hours=24):
-                print("Skipping price fetch — last fetch was less than 24 hours ago.")
+            # Checked against the database itself, not a local timestamp
+            # file — Render's filesystem is wiped on every deploy/restart,
+            # so a file-based check would make every fresh deploy re-run the
+            # full multi-year seed even after the database is already
+            # populated. The daily scheduled job (backend/scheduler) handles
+            # ongoing incremental updates once this initial seed is done.
+            if has_sufficient_historical_data():
+                print("Database already has historical data — skipping full seed.")
             else:
-                print("Checking if historical seed is needed...")
+                print("Database looks empty/partial — running full historical seed...")
                 seed_historical(years=10)
         except Exception as e:
             print(f"[Startup] Historical seed failed (non-fatal): {e}")

@@ -29,6 +29,25 @@ def was_fetched_recently(hours: int = 24) -> bool:
     last = _get_last_fetch_time()
     return last is not None and (datetime.now() - last) < timedelta(hours=hours)
 
+
+def has_sufficient_historical_data(min_records: int = 5000) -> bool:
+    """
+    Checks the database directly rather than a local timestamp file. On hosts
+    with an ephemeral filesystem (Render, etc.), a local ".last_fetch.json"
+    file never survives a restart/redeploy, so relying on it would make every
+    fresh deploy re-run the full multi-year historical seed even when the
+    (persistent, remote) database already has the data. min_records=5000 is
+    comfortably below a full seed (~2,500 records/ticker x 40 tickers) but
+    well above what a handful of partially-seeded tickers would produce.
+    """
+    from sqlalchemy import func
+    db = SessionLocal()
+    try:
+        count = db.query(func.count(ETFPrice.id)).scalar()
+        return (count or 0) >= min_records
+    finally:
+        db.close()
+
 # ── ETF Universe ──────────────────────────────────────────────────────────────
 
 ETFS = {

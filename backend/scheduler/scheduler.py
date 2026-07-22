@@ -21,16 +21,15 @@ scheduler = BackgroundScheduler(timezone="America/New_York")
 
 
 def _run_fetch():
-    from backend.data.database import SessionLocal
     from backend.ingestion.fetch_prices import fetch_latest
-    db = SessionLocal()
+    # fetch_latest() manages its own DB session internally — it doesn't take
+    # one as an argument. (Previously called as fetch_latest(db), which threw
+    # a TypeError every time this job ran, silently swallowed below.)
     try:
-        fetch_latest(db)
+        fetch_latest()
         print("[Scheduler] Daily price fetch complete.")
     except Exception as e:
         print(f"[Scheduler] Price fetch failed: {e}")
-    finally:
-        db.close()
 
 
 def _retrain_all_models():
