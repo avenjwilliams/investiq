@@ -5,7 +5,9 @@ import os
 import time
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
-from backend.data.database import ETFPrice, ETFMetadata, SessionLocal, init_db
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from backend.data.database import ETFPrice, ETFMetadata, SessionLocal, init_db, IS_SQLITE
 
 _TIMESTAMP_FILE = os.path.join(os.path.dirname(__file__), ".last_fetch.json")
 
@@ -140,25 +142,33 @@ def fetch_and_store(ticker: str, start: str, end: str, db: Session, max_retries:
                 "Volume": "volume"
             }, inplace=True)
 
-            records_added = 0
-            for _, row in df.iterrows():
-                record_id = f"{ticker}_{row['date'].date()}"
-                existing = db.query(ETFPrice).filter_by(id=record_id).first()
-                if not existing:
-                    db.add(ETFPrice(
-                        id=record_id,
-                        ticker=ticker,
-                        date=row["date"].date(),
-                        open=row.get("open"),
-                        high=row.get("high"),
-                        low=row.get("low"),
-                        close=row.get("adj_close"),
-                        adj_close=row.get("adj_close"),
-                        volume=row.get("volume"),
-                    ))
-                    records_added += 1
+            # Bulk upsert instead of a per-row SELECT-then-INSERT loop. The old
+            # loop ran one round-trip query per row to check for an existing
+            # record before inserting — fine against local SQLite, but against
+            # a remote host like Neon each round trip pays full network
+            # latency, so a single ~2,500-row ticker could take minutes. A
+            # single INSERT ... ON CONFLICT DO NOTHING lets the database
+            # handle duplicate detection in one statement.
+            records = [
+                {
+                    "id": f"{ticker}_{row['date'].date()}",
+                    "ticker": ticker,
+                    "date": row["date"].date(),
+                    "open": row.get("open"),
+                    "high": row.get("high"),
+                    "low": row.get("low"),
+                    "close": row.get("adj_close"),
+                    "adj_close": row.get("adj_close"),
+                    "volume": row.get("volume"),
+                }
+                for _, row in df.iterrows()
+            ]
 
+            insert_fn = sqlite_insert if IS_SQLITE else pg_insert
+            stmt = insert_fn(ETFPrice).values(records).on_conflict_do_nothing(index_elements=["id"])
+            result = db.execute(stmt)
             db.commit()
+            records_added = result.rowcount if result.rowcount and result.rowcount > 0 else 0
             print(f"  [OK] {ticker}: {records_added} new records added.")
         except Exception as e:
             db.rollback()
