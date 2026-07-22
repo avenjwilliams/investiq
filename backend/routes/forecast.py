@@ -9,6 +9,16 @@ import backend.analytics.forecast_transformer as transformer_forecast
 
 router = APIRouter(prefix="/forecast", tags=["Forecasting"])
 
+# Training in-process (across all 40 tickers) OOMs Render's free-tier 512MB
+# instance — confirmed via Render's Events log ("Ran out of memory (used over
+# 512MB) while running your code") after trying it. Render's filesystem is
+# also ephemeral, so even a successful in-container run wouldn't survive a
+# restart anyway. The shipped model is trained locally and committed to the
+# repo instead (see backend/models/). ALLOW_TRAINING defaults on for local
+# dev; render.yaml sets it to "0" in production so neither the API nor the
+# weekly scheduler job can trigger the same crash again.
+ALLOW_TRAINING = (os.environ.get("ALLOW_TRAINING") or "1") == "1"
+
 
 # ── Transformer endpoints ─────────────────────────────────────────────────────
 # The Transformer (direction head + richer features + walk-forward CV) is the
@@ -33,6 +43,17 @@ def train_transformer(background_tasks: BackgroundTasks):
     Train (or retrain) the Transformer model on all ETFs.
     Returns immediately — training runs in the background.
     """
+    if not ALLOW_TRAINING:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Model training is disabled on this host — Render's free tier "
+                "doesn't have enough RAM to train the Transformer in-process "
+                "(this previously crashed the instance with an OOM). The "
+                "shipped model is trained locally and committed to the repo; "
+                "retrain locally and redeploy to update it."
+            ),
+        )
     background_tasks.add_task(_train_transformer_background)
     return {
         "status": "training_started",
@@ -76,6 +97,15 @@ def cross_validate_transformer(background_tasks: BackgroundTasks, n_folds: int =
     evaluates each on the block that follows. Does not affect the production model —
     check GET /forecast/transformer/cv-metrics once complete.
     """
+    if not ALLOW_TRAINING:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Model training is disabled on this host — cross-validation trains "
+                "n_folds separate models, which is even more memory-hungry than a "
+                "single train-all run and isn't safe on Render's free tier."
+            ),
+        )
     background_tasks.add_task(_cross_validate_transformer_background, n_folds)
     return {
         "status": "cross_validation_started",
@@ -116,6 +146,7 @@ def list_trained_transformer_models(db: Session = Depends(get_db)):
     return {
         "model_ready": ready,
         "last_trained": last_trained,
+        "training_enabled": ALLOW_TRAINING,
         "etfs": [
             {
                 "ticker": e.ticker,

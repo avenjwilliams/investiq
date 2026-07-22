@@ -19,6 +19,12 @@ ETF_UNIVERSE = [
 
 scheduler = BackgroundScheduler(timezone="America/New_York")
 
+# Training in-process OOMs Render's free-tier 512MB instance (confirmed via
+# Render's Events log after trying it) — see backend/routes/forecast.py for
+# the fuller explanation. render.yaml sets this to "0" in production so the
+# weekly retrain job isn't even scheduled there.
+ALLOW_TRAINING = (os.environ.get("ALLOW_TRAINING") or "1") == "1"
+
 
 def _run_fetch():
     from backend.ingestion.fetch_prices import fetch_latest
@@ -61,14 +67,17 @@ def start_scheduler():
         id="daily_price_fetch",
     )
 
-    # Weekly model retrain — every Sunday at 2 AM ET
-    scheduler.add_job(
-        _retrain_all_models,
-        CronTrigger(day_of_week="sun", hour=2, minute=0, timezone="America/New_York"),
-        misfire_grace_time=3600,
-        id="weekly_model_retrain",
-    )
+    # Weekly model retrain — every Sunday at 2 AM ET. Not scheduled at all if
+    # ALLOW_TRAINING is off (production/Render) — see note above ALLOW_TRAINING.
+    if ALLOW_TRAINING:
+        scheduler.add_job(
+            _retrain_all_models,
+            CronTrigger(day_of_week="sun", hour=2, minute=0, timezone="America/New_York"),
+            misfire_grace_time=3600,
+            id="weekly_model_retrain",
+        )
 
     scheduler.start()
-    print("[Scheduler] Started — daily fetch (Mon–Fri 6 PM ET) | weekly retrain (Sun 2 AM ET)")
+    retrain_note = "weekly retrain (Sun 2 AM ET)" if ALLOW_TRAINING else "weekly retrain disabled (ALLOW_TRAINING=0)"
+    print(f"[Scheduler] Started — daily fetch (Mon–Fri 6 PM ET) | {retrain_note}")
     return scheduler

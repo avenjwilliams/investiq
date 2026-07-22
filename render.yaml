@@ -13,6 +13,8 @@ services:
     envVars:
       - key: DEV_MODE
         value: "0"
+      - key: ALLOW_TRAINING
+        value: "0"   # training in-process OOMs the free tier's 512MB RAM — see backend/routes/forecast.py
       - key: PYTHONUNBUFFERED
         value: "1"   # otherwise print() output is silently buffered and never reaches Render's log viewer
       - key: ALLOWED_ORIGINS

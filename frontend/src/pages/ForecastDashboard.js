@@ -156,6 +156,7 @@ function ForecastDashboard() {
   const [forecasts, setForecasts] = useState({});
   const [modelReady, setModelReady] = useState(false);
   const [lastTrained, setLastTrained] = useState(null);
+  const [trainingEnabled, setTrainingEnabled] = useState(true);
   const [loading, setLoading] = useState(true);
   const [loadingForecasts, setLoadingForecasts] = useState(false);
   const [forecastsLoaded, setForecastsLoaded] = useState(false);
@@ -171,6 +172,7 @@ function ForecastDashboard() {
       .then(data => {
         setModelReady(data.model_ready);
         setLastTrained(data.last_trained);
+        setTrainingEnabled(data.training_enabled !== false);
         setEtfs(data.etfs);
       })
       .finally(() => setLoading(false));
@@ -254,9 +256,10 @@ function ForecastDashboard() {
         <button
           className="btn btn-primary"
           onClick={handleUpdateModel}
-          disabled={trainingAll}
+          disabled={trainingAll || !trainingEnabled}
+          title={trainingEnabled ? undefined : "Disabled on this host — training in-process needs more RAM than the free tier's 512MB. The shipped model is trained locally and committed to the repo."}
         >
-          {trainingAll ? 'Starting…' : '⚡ Update Model'}
+          {trainingAll ? 'Starting…' : trainingEnabled ? '⚡ Update Model' : '⚡ Update Model (disabled)'}
         </button>
 
         <button
