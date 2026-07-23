@@ -1,10 +1,8 @@
 # InvestIQ
 
-A full-stack investment intelligence platform: automated ETF data ingestion, mean-variance and Black-Litterman portfolio optimization, a Transformer-based 90-day price forecasting model, and FinBERT sentiment analysis on live news — all surfaced through a React dashboard backed by a FastAPI/Postgres API.
+A full-stack investment intelligence platform: automated ETF data ingestion, mean-variance and Black-Litterman portfolio optimization, a Transformer-based 90-day price forecasting model, and FinBERT sentiment analysis on live news — all surfaced through a React dashboard backed by a FastAPI/Postgres-or-SQLite API.
 
-**[Live demo →](https://investiq-blue.vercel.app)** &nbsp;|&nbsp; [API (Swagger docs)](https://investiq-api-jk3r.onrender.com/docs) &nbsp;|&nbsp; [Source](https://github.com/avenjwilliams/investiq)
-
-> Hosted on free tiers (Render + Vercel + Neon). The backend spins down after ~15 min idle, so the first request after a while can take 30–50s to wake up — that's a free-tier tradeoff, not a bug. See [Hosting](#hosting) below.
+[Source](https://github.com/avenjwilliams/investiq) — see [Running locally](#running-locally) below to try it yourself.
 
 ---
 
@@ -46,7 +44,7 @@ This is the part most portfolio projects skip, so it gets its own section.
 
 **Conclusion:** three independent methods — a walk-forward-validated Transformer, a linear baseline, and a drift-controlled cross-sectional check — converge on the same result. There's no reliable directional edge in this feature set for daily-frequency prediction on liquid, diversified ETFs, which is roughly what market efficiency would predict. Reporting that honestly, with the numbers and the reasoning that got there, is the actual point of this section — a suspiciously good backtest is usually a bug, not a discovery.
 
-The Model Metrics page in the live app reports these same numbers per-ticker against a held-out test set, not just the CV summary above.
+The Model Metrics page in the app reports these same numbers per-ticker against a held-out test set, not just the CV summary above.
 
 ---
 
@@ -54,8 +52,8 @@ The Model Metrics page in the live app reports these same numbers per-ticker aga
 
 ```
 ┌─────────────┐      ┌──────────────────┐      ┌─────────────────┐
-│   React     │─────▶│   FastAPI         │─────▶│   Postgres       │
-│  (Vercel)   │◀─────│   (Render)        │◀─────│   (Neon)         │
+│   React     │─────▶│   FastAPI         │─────▶│  Postgres /      │
+│  frontend   │◀─────│   backend         │◀─────│  SQLite          │
 └─────────────┘      └──────────────────┘      └─────────────────┘
                              │
                  ┌───────────┼───────────┐
@@ -65,7 +63,7 @@ The Model Metrics page in the live app reports these same numbers per-ticker aga
 ```
 
 - **Backend** — FastAPI + SQLAlchemy, APScheduler for daily price fetches, all analytics (optimization, forecasting, sentiment) as pure Python modules called from thin route handlers.
-- **Data** — SQLite locally, Postgres (Neon) in production via a single `DATABASE_URL` env var; `NullPool` so a free-tier host that spins connections down doesn't hand out stale ones.
+- **Data** — SQLite by default; swaps to Postgres via a single `DATABASE_URL` env var with no code changes (`NullPool` so it also works cleanly against a host that recycles connections).
 - **Forecasting** — a shared Transformer (not one model per ticker) with per-ticker embeddings, a dedicated binary direction-classification head trained alongside the regression head, and per-horizon (day+1 through day+90) accuracy logging.
 - **Frontend** — React + Recharts, API base URL read from `REACT_APP_API_URL` (baked in at build time).
 
@@ -73,12 +71,11 @@ The Model Metrics page in the live app reports these same numbers per-ticker aga
 
 | Layer | Tech |
 |---|---|
-| Backend | FastAPI, SQLAlchemy, Postgres (Neon) / SQLite (dev) |
+| Backend | FastAPI, SQLAlchemy, SQLite (default) / Postgres (via `DATABASE_URL`) |
 | Data | yfinance, NewsAPI |
 | Analytics | PyPortfolioOpt, TensorFlow/Keras (Transformer), HuggingFace FinBERT |
 | Scheduler | APScheduler — daily price fetch (Mon–Fri 6PM ET) |
 | Frontend | React, Recharts, Axios |
-| Hosting | Vercel (frontend) + Render (backend) + Neon (Postgres) |
 
 ---
 
@@ -104,18 +101,13 @@ curl -X POST http://localhost:8000/forecast/transformer/train-all
 
 ---
 
-## Hosting
+## Deployment notes
 
-**Path:** Vercel (frontend) + Render free tier (backend) + Neon (Postgres) — all free.
+The app is built to be deployment-ready — `render.yaml`, `.env.example` files, a configurable `DATABASE_URL`/`ALLOWED_ORIGINS`/`REACT_APP_API_URL`, and Postgres support via a single env var swap — and was fully deployed and tested end-to-end on Vercel + Render (free tier) + Neon during development.
 
-**Why not SQLite in production?** Render's free tier (like most free-tier PaaS hosts) has an ephemeral filesystem — a local SQLite file gets wiped on every redeploy or restart. Neon's free tier (0.5GB, scale-to-zero, no expiration) decouples the database from whichever backend host is running it.
+It's presented here as a local project rather than a live link. The reason is specific, not general hosting aversion: this app runs two full ML frameworks in one process (TensorFlow for the Transformer, PyTorch/Transformers for FinBERT), and free-tier hosts capped at 512MB RAM can't reliably hold both — training and FinBERT sentiment both OOM-crashed the instance in practice (confirmed via the host's own memory logs). A paid tier or a memory-lighter sentiment model would fix this; neither was worth taking on for a project meant to demonstrate the modeling and engineering, not run a 24/7 service.
 
-**Why the Transformer model is committed to the repo instead of trained on Render:** training across all 40 tickers in-process needs more than Render free tier's 512MB RAM — confirmed the hard way (an OOM crash, visible in Render's Events log). The model is small (~200KB total) and doesn't need frequent retraining, so it's trained locally and its weights are committed directly (`backend/models/`) rather than regenerated in a memory-constrained container. An `ALLOW_TRAINING` env var (off in production) disables the training endpoints and the weekly retrain job on Render specifically, so this can't happen again — retrain locally and redeploy when the model needs updating.
-
-**Known limitations:**
-- Render's free tier spins down after ~15 min idle; the next request eats a ~30-50s cold start. Fine for a portfolio demo, mildly annoying if showing it live in person.
-- Yahoo Finance rate-limits/blocks requests from cloud datacenter IPs more aggressively than residential ones — the daily incremental price fetch retries with backoff, but a one-time full historical backfill is better run locally (residential IP) and loaded into Neon directly, which is how this was originally seeded.
-- The `/docs` Swagger UI is a good way to explore the API surface without touching the frontend at all.
+Everything needed to redeploy is still in the repo if you want to try it yourself.
 
 ---
 
