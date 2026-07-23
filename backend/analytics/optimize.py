@@ -3,6 +3,7 @@ import os
 import numpy as np
 import pandas as pd
 import yfinance as yf
+from datetime import date, timedelta
 from pypfopt import expected_returns, risk_models, EfficientFrontier
 from pypfopt.black_litterman import BlackLittermanModel, market_implied_prior_returns, market_implied_risk_aversion
 from pypfopt.discrete_allocation import DiscreteAllocation, get_latest_prices
@@ -10,13 +11,28 @@ from sqlalchemy.orm import Session
 
 from backend.data.database import ETFPrice, ETFMetadata, SessionLocal
 
+# Covariance/expected-return estimates use a recent window rather than the
+# full ~10-year history. Two reasons, not just one: (1) a decade-old
+# correlation structure (pre-COVID, different rate regime) isn't very
+# representative of current risk, so a shorter window is the more standard
+# choice for this kind of estimation anyway; (2) pulling and pivoting all
+# ~96k rows for all 40 tickers on every optimize request was genuinely slow
+# on Render's free-tier CPU — slow enough to starve the whole process
+# (confirmed via /health not responding while a request was in flight).
+PRICE_LOOKBACK_YEARS = 3
 
-def load_price_matrix(db: Session) -> pd.DataFrame:
+
+def load_price_matrix(db: Session, lookback_years: int = PRICE_LOOKBACK_YEARS) -> pd.DataFrame:
     """
     Pull adjusted close prices from the database and return a
     DataFrame with dates as the index and tickers as columns.
     """
-    records = db.query(ETFPrice.date, ETFPrice.ticker, ETFPrice.adj_close).all()
+    cutoff = date.today() - timedelta(days=365 * lookback_years)
+    records = (
+        db.query(ETFPrice.date, ETFPrice.ticker, ETFPrice.adj_close)
+        .filter(ETFPrice.date >= cutoff)
+        .all()
+    )
 
     if not records:
         raise ValueError("No price data found in the database.")
