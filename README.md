@@ -17,16 +17,23 @@ InvestIQ tracks a 40-ETF universe spanning Sector, Broad Market, Thematic, Inter
 
 ### Feature tour
 
-| Page | What it shows |
-|---|---|
-| **Portfolio** | Allocation pie chart + category breakdown for all three optimization strategies, with expected return / volatility / Sharpe ratio |
-| **ETF Explorer** | Price history + 90-day forecast overlay and 7-day sentiment for any single ETF |
-| **Sentiment Feed** | FinBERT sentiment across the whole universe, filterable by category and sentiment |
-| **ETF Universe** | What each of the 6 categories is, why it's included, and the full holdings list |
-| **Forecasts** | Grid of all 40 ETFs' forecasts with sparklines, sortable by predicted return |
-| **Model Metrics** | Held-out test set results — directional accuracy, MAE, MSE, per-ticker breakdown |
+**Portfolio** — Allocation pie chart + category breakdown for all three optimization strategies, with expected return / volatility / Sharpe ratio.
+![Portfolio](docs/screenshots/portfolio.png)
 
-*(Screenshots: add your own from the pages above into `docs/screenshots/` and reference them here, e.g. `![Portfolio](docs/screenshots/portfolio.png)`.)*
+**ETF Explorer** — Price history + 90-day forecast overlay and 7-day sentiment for any single ETF.
+![ETF Explorer](docs/screenshots/explorer.png)
+
+**Sentiment Feed** — FinBERT sentiment across the whole universe, filterable by category and sentiment.
+![Sentiment Feed](docs/screenshots/sentiment.png)
+
+**ETF Universe** — What each of the 6 categories is, why it's included, and the full holdings list.
+![ETF Universe](docs/screenshots/universe.png)
+
+**Forecasts** — Grid of all 40 ETFs' forecasts with sparklines, sortable by predicted return.
+![Forecasts](docs/screenshots/forecasts.png)
+
+**Model Metrics** — Held-out test set results: directional accuracy, MAE, MSE, per-ticker breakdown.
+![Model Metrics](docs/screenshots/model-metrics.png)
 
 ---
 
