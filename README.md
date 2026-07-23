@@ -26,8 +26,7 @@ InvestIQ tracks a 40-ETF universe spanning Sector, Broad Market, Thematic, Inter
 **Sentiment Feed** — FinBERT sentiment across the whole universe, filterable by category and sentiment.
 ![Sentiment Feed](docs/screenshots/sentiment.png)
 
-**ETF Universe** — What each of the 6 categories is, why it's included, and the full holdings list.
-![ETF Universe](docs/screenshots/universe.png)
+**ETF Universe** — What each of the 6 categories is, why it's included, and the full holdings list. (Tall, expandable-accordion page — best explored live rather than in a single screenshot.)
 
 **Forecasts** — Grid of all 40 ETFs' forecasts with sparklines, sortable by predicted return.
 ![Forecasts](docs/screenshots/forecasts.png)
