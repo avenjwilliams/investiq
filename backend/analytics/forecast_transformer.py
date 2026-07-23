@@ -46,6 +46,31 @@ TICKER_INDEX_PATH = os.path.join(MODEL_DIR, "transformer_ticker_index.json")
 METRICS_PATH      = os.path.join(MODEL_DIR, "transformer_metrics.json")
 CV_METRICS_PATH   = os.path.join(MODEL_DIR, "transformer_cv_metrics.json")
 
+_cached_model = None
+_cached_scaler = None
+_cached_model_mtime = None
+
+
+def _get_model_and_scaler():
+    """
+    Loads the Transformer + scaler once per process and reuses them, instead
+    of deserializing the model from disk on every single predict() call.
+    On Render's free-tier shared CPU, a fresh tf.keras.models.load_model()
+    call was a noticeable chunk of the ETF Explorer's per-request latency —
+    caching it makes every request after the first one fast. Invalidated by
+    mtime so a locally-retrained-and-redeployed model still gets picked up
+    (redeploys restart the process anyway, but this is cheap insurance).
+    """
+    global _cached_model, _cached_scaler, _cached_model_mtime
+    import tensorflow as tf
+
+    mtime = os.path.getmtime(MODEL_PATH)
+    if _cached_model is None or _cached_model_mtime != mtime:
+        _cached_model = tf.keras.models.load_model(MODEL_PATH, compile=False)
+        _cached_scaler = joblib.load(SCALER_PATH)
+        _cached_model_mtime = mtime
+    return _cached_model, _cached_scaler
+
 
 # ── Data helpers ──────────────────────────────────────────────────────────────
 
@@ -833,8 +858,6 @@ def predict(ticker: str, db: Session) -> dict:
     Generate a 90-day price forecast for `ticker` using the Transformer model.
     Identical output shape to forecast.py so it can be swapped in routes.
     """
-    import tensorflow as tf
-
     if not model_exists():
         raise FileNotFoundError("Transformer model not trained yet. Run train_all first.")
 
@@ -844,9 +867,7 @@ def predict(ticker: str, db: Session) -> dict:
     if ticker not in ticker_index:
         raise ValueError(f"'{ticker}' was not part of the training set.")
 
-    # compile=False — custom loss/heads not needed for inference
-    model  = tf.keras.models.load_model(MODEL_PATH, compile=False)
-    scaler = joblib.load(SCALER_PATH)
+    model, scaler = _get_model_and_scaler()
 
     meta = ticker_index.pop("_meta", {})
     N_ETF  = meta.get("n_etf", len(ticker_index))
@@ -947,8 +968,6 @@ def predict_all_pct_changes(db: Session) -> dict[str, float]:
 
     Returns: { ticker: annualised_return_float, ... }
     """
-    import tensorflow as tf
-
     if not model_exists():
         raise FileNotFoundError("Transformer model not trained yet. Run train_all first.")
 
@@ -958,8 +977,7 @@ def predict_all_pct_changes(db: Session) -> dict[str, float]:
     N_ETF = meta_info.get("n_etf", len(meta))
     tickers_ordered = [t for t, _ in sorted(meta.items(), key=lambda x: x[1])]
 
-    model  = tf.keras.models.load_model(MODEL_PATH, compile=False)
-    scaler = joblib.load(SCALER_PATH)
+    model, scaler = _get_model_and_scaler()
 
     prices_df, volume_df = _get_all_prices_and_volume(tickers_ordered, db)
     if prices_df.empty:

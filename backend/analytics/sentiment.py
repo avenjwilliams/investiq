@@ -5,8 +5,9 @@ from datetime import datetime, timedelta
 from typing import Optional
 from sqlalchemy.orm import Session
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from backend.data.database import ETFMetadata, SentimentRecord
+from backend.data.database import ETFMetadata, SentimentRecord, IS_SQLITE
 
 # torch/transformers are NOT imported at module level on purpose — importing
 # them eagerly means every app startup pays their load cost (noticeably slow,
@@ -83,21 +84,34 @@ def fetch_news(ticker: str, company_name: str, days_back: int = 7) -> list:
 
 def analyze_headline(headline: str) -> dict:
     """Run a single headline through FinBERT and return scores."""
+    return analyze_headlines([headline])[0]
+
+
+def analyze_headlines(headlines: list) -> list:
+    """
+    Run a batch of headlines through FinBERT in one call instead of looping
+    one at a time. HuggingFace pipelines vectorize batched input, so this is
+    meaningfully faster than N sequential forward passes — noticeable on
+    Render's free-tier CPU where ETF Explorer's per-ticker sentiment (up to
+    20 headlines) was a real chunk of page load time.
+    """
     finbert = get_finbert()
 
     # FinBERT max token length is 512 — truncate long headlines
-    truncated = headline[:512]
-    results = finbert(truncated)[0]
+    truncated = [h[:512] for h in headlines]
+    batch_results = finbert(truncated)  # list of per-headline label/score lists
 
-    scores = {r["label"].lower(): r["score"] for r in results}
-    dominant = max(scores, key=scores.get)
-
-    return {
-        "sentiment": dominant,
-        "positive_score": round(scores.get("positive", 0), 4),
-        "negative_score": round(scores.get("negative", 0), 4),
-        "neutral_score": round(scores.get("neutral", 0), 4),
-    }
+    out = []
+    for results in batch_results:
+        scores = {r["label"].lower(): r["score"] for r in results}
+        dominant = max(scores, key=scores.get)
+        out.append({
+            "sentiment": dominant,
+            "positive_score": round(scores.get("positive", 0), 4),
+            "negative_score": round(scores.get("negative", 0), 4),
+            "neutral_score": round(scores.get("neutral", 0), 4),
+        })
+    return out
 
 
 # ── Main Entry Point ──────────────────────────────────────────────────────────
@@ -123,11 +137,12 @@ def get_ticker_sentiment(ticker: str, db: Session, days_back: int = 7) -> dict:
             "headlines": []
         }
 
-    # Analyze each headline
+    # Analyze all headlines in one batched FinBERT call instead of looping
+    all_scores = analyze_headlines([a["headline"] for a in articles])
+
     analyzed = []
-    for article in articles:
+    for article, scores in zip(articles, all_scores):
         headline = article["headline"]
-        scores = analyze_headline(headline)
 
         # Store in DB — use INSERT OR IGNORE to skip duplicates
         record_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, f"{ticker}_{headline}"))
@@ -137,7 +152,11 @@ def get_ticker_sentiment(ticker: str, db: Session, days_back: int = 7) -> dict:
         except Exception:
             pub_dt = datetime.utcnow()
 
-        stmt = sqlite_insert(SentimentRecord).values(
+        # Dialect-aware — sqlite_insert(...).on_conflict_do_nothing() compiles
+        # to SQLite-specific SQL and raises a CompileError if executed against
+        # a Postgres connection (production runs Postgres via Neon).
+        insert_fn = sqlite_insert if IS_SQLITE else pg_insert
+        stmt = insert_fn(SentimentRecord).values(
             id=record_id,
             ticker=ticker,
             headline=headline,
