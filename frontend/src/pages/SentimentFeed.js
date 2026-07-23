@@ -37,6 +37,7 @@ function SentimentFeed() {
   const [etfs, setEtfs] = useState([]);
   const [selectedTicker, setSelectedTicker] = useState(null);
   const [sentiment, setSentiment] = useState(null);
+  const [sentimentError, setSentimentError] = useState(null);
   const [daysBack, setDaysBack] = useState(7);
   const [categoryFilter, setCategoryFilter] = useState('All');
   const [sentimentFilter, setSentimentFilter] = useState('All');
@@ -81,8 +82,11 @@ function SentimentFeed() {
     }
     setSelectedTicker(ticker);
     setLoading(true);
+    setSentiment(null);
+    setSentimentError(null);
     getETFSentiment(ticker, daysBack)
       .then(setSentiment)
+      .catch(e => setSentimentError(e.response?.data?.detail || e.message || 'Failed to load sentiment.'))
       .finally(() => setLoading(false));
   };
 
@@ -247,7 +251,11 @@ function SentimentFeed() {
               </div>
 
               {loading ? (
-                <div className="loading">Analyzing...</div>
+                <div className="loading">Analyzing... (first request per server restart can take a couple minutes)</div>
+              ) : sentimentError ? (
+                <div style={{ color: '#ef4444', fontSize: '14px' }}>
+                  Couldn't load sentiment: {sentimentError}
+                </div>
               ) : sentiment && sentiment.headlines.length > 0 ? (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', maxHeight: '70vh', overflowY: 'auto' }}>
                   {sentiment.headlines.map((h, i) => (

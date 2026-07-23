@@ -62,6 +62,7 @@ function ETFExplorer() {
   const [prices, setPrices] = useState(null);
   const [forecast, setForecast] = useState(null);
   const [sentiment, setSentiment] = useState(null);
+  const [sentimentError, setSentimentError] = useState(null);
   const [trainedModels, setTrainedModels] = useState({});
   const [loading, setLoading] = useState({ prices: false, forecast: false, sentiment: false });
   const [error, setError] = useState(null);
@@ -83,6 +84,7 @@ function ETFExplorer() {
     setPrices(null);
     setForecast(null);
     setSentiment(null);
+    setSentimentError(null);
 
     // Fetch price history (last 6 months)
     const sixMonthsAgo = new Date();
@@ -108,7 +110,7 @@ function ETFExplorer() {
     setLoading(l => ({ ...l, sentiment: true }));
     getETFSentiment(selectedTicker, 7)
       .then(setSentiment)
-      .catch(() => {})
+      .catch(e => setSentimentError(e.response?.data?.detail || e.message || 'Failed to load sentiment.'))
       .finally(() => setLoading(l => ({ ...l, sentiment: false })));
 
   }, [selectedTicker, trainedModels]);
@@ -261,7 +263,11 @@ function ETFExplorer() {
         </h3>
 
         {loading.sentiment ? (
-          <div className="loading">Analyzing sentiment...</div>
+          <div className="loading">Analyzing sentiment... (first request per server restart can take a couple minutes — FinBERT downloads fresh each time on the free tier)</div>
+        ) : sentimentError ? (
+          <div style={{ color: '#ef4444', fontSize: '14px' }}>
+            Couldn't load sentiment: {sentimentError}
+          </div>
         ) : sentiment && sentiment.articles_analyzed > 0 ? (
           <>
             {/* Sentiment Summary */}
